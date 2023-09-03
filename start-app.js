@@ -4,33 +4,62 @@ global.self = global; // 定義全域變數 self
 
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
+const { join } = require('path');
 
-// 設置正確的目錄
-const directoryPath = path.join(__dirname, 'dist/search/browser');
+async function startServer() {
+  const directoryPath = path.join(__dirname, 'dist/search/browser');
 
-// 讀取目錄下的所有檔案，找到 main.js
-fs.readdir(directoryPath, (err, files) => {
-  if (err) {
-    return console.log('Unable to scan directory: ' + err);
-  }
+  fs.readdir(directoryPath, async (err, files) => {
+    if (err) {
+      return console.log('Unable to scan directory: ' + err);
+    }
 
-  // 尋找檔名以 'main.' 開始的檔案
-  const mainFile = files.find((file) => file.startsWith('main.'));
+    const mainFile = files.find(file => file.startsWith('main.'));
 
-  if (mainFile) {
-    const fullPath = path.join(directoryPath, mainFile);
+    if (mainFile) {
+      const fullPath = path.join(directoryPath, mainFile);
 
-    try {
-      // 使用 require 或其他方法執行 main 檔案
-      require(fullPath);
-      console.log('main.js 成功執行');
+      try {
+        const mainExports = await import(fullPath);
+        console.log('mainExports:', mainExports);
 
-    } catch (e) {
-      console.error('Error while requiring main file:', e);
-    };
+        if (mainExports.AppServerModule) {
+          const ngExpressEngine = await import('@nguniversal/express-engine').then(module => module.ngExpressEngine);
 
-  } else {
-    console.log('main.js not found');
-  };
+          console.log('main.js 成功執行');
 
-});
+          const PORT = process.env.PORT || 4000;
+          const app = express();
+
+          app.engine('html', ngExpressEngine({
+            bootstrap: mainExports.AppServerModule
+          }));
+
+          app.set('view engine', 'html');
+          app.set('views', join(process.cwd(), 'dist/search/browser'));
+
+          app.get('*.*', express.static(join(process.cwd(), 'dist/search/browser')));
+
+          app.get('*', (req, res) => {
+            res.render('index', { req, res });
+          });
+
+          app.listen(PORT, () => {
+            console.log(`Node server listening on http://localhost:${PORT}`);
+          });
+        } else {
+          console.log('AppServerModule not found in mainExports');
+        }
+
+      } catch (e) {
+        console.error('Error while requiring main file:', e);
+      }
+
+    } else {
+      console.log('main.js not found');
+    }
+  });
+}
+
+startServer().catch(err => console.error(err));
